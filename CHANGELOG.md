@@ -21,10 +21,12 @@ con is still pre-release, so entries may group related beta work while the produ
 
 **Terminal · macOS**
 
-- Command-click now opens terminal links even when Command is pressed after
-  hovering. For long, wrapped links such as Codex sign-in URLs, hover and press
-  Command-C to copy the complete address without selecting every line. _(PR
-  [#404](https://github.com/nowledge-co/con-terminal/pull/404) by
+- Command-click can open terminal links inside mouse-aware apps such as Codex
+  CLI without changing their normal click behavior. For long, wrapped sign-in
+  links, hover and press Command-C to copy the complete address without
+  selecting every line. _(PR
+  [#404](https://github.com/nowledge-co/con-terminal/pull/404) and
+  [#406](https://github.com/nowledge-co/con-terminal/pull/406) by
   [@wey-gu](https://github.com/wey-gu))_
 
 ---

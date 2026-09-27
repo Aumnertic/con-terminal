@@ -2102,13 +2102,21 @@ impl GhosttyView {
     }
 
     #[cfg(target_os = "macos")]
-    fn sync_modifiers(&self, modifiers: &Modifiers) {
+    fn sync_modifiers(&self, modifiers: &Modifiers, for_left_click: bool) -> Modifiers {
         let Some(terminal) = self.terminal.as_ref() else {
-            return;
+            return *modifiers;
         };
-        let previous = self.last_forwarded_modifiers.replace(*modifiers);
-        let Some((keycode, pressed)) = changed_modifier_key(previous, *modifiers) else {
-            return;
+        let mouse_captured = modifiers.platform && terminal.mouse_captured();
+        let effective = mouse_link_modifiers(*modifiers, mouse_captured);
+        let previous = self.last_forwarded_modifiers.replace(effective);
+        let changed = changed_modifier_key(previous, effective);
+        // A regular key may have restored the physical modifier state since the
+        // last mouse event. Refresh the link before the click even if our
+        // last forwarded mouse modifiers are unchanged.
+        let Some((keycode, pressed)) =
+            changed.or_else(|| (for_left_click && mouse_captured).then_some((0x38, true)))
+        else {
+            return effective;
         };
         terminal.send_key(ffi::ghostty_input_key_s {
             action: if pressed {
@@ -2116,13 +2124,14 @@ impl GhosttyView {
             } else {
                 ffi::ghostty_input_action_e::GHOSTTY_ACTION_RELEASE
             },
-            mods: gpui_mods_to_ghostty(modifiers),
+            mods: gpui_mods_to_ghostty(&effective),
             consumed_mods: 0,
             keycode,
             text: std::ptr::null(),
             unshifted_codepoint: 0,
             composing: false,
         });
+        effective
     }
 
     /// Handle key input by forwarding to ghostty's key processing pipeline.
@@ -2446,6 +2455,16 @@ fn gpui_mods_to_ghostty(mods: &Modifiers) -> i32 {
 }
 
 #[cfg(target_os = "macos")]
+fn mouse_link_modifiers(mut physical: Modifiers, mouse_captured: bool) -> Modifiers {
+    if mouse_captured && physical.platform {
+        // Ghostty uses Shift to release a TUI's mouse capture and drops Shift
+        // when matching Command-held links. Keep the ordinary click path intact.
+        physical.shift = true;
+    }
+    physical
+}
+
+#[cfg(target_os = "macos")]
 fn changed_modifier_key(previous: Modifiers, current: Modifiers) -> Option<(u32, bool)> {
     [
         (previous.platform, current.platform, 0x37),
@@ -2734,11 +2753,12 @@ impl Render for GhosttyView {
                 let Some(terminal) = &this.terminal else {
                     return;
                 };
-                if !terminal.has_selection() {
-                    return;
-                }
-                if let Some(selection) = terminal.selection_text() {
-                    cx.write_to_clipboard(ClipboardItem::new_string(selection));
+                let has_selection = terminal.has_selection();
+                let selection = has_selection.then(|| terminal.selection_text()).flatten();
+                if let Some(text) =
+                    copyable_terminal_text(has_selection, selection, this.hovered_osc8_url.as_ref())
+                {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
                 }
             }))
             .on_action(cx.listener(|this, _: &crate::Paste, _window, cx| {
@@ -2783,8 +2803,8 @@ impl Render for GhosttyView {
                 gpui::MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                     window.focus(&focus, cx);
-                    this.sync_modifiers(&event.modifiers);
-                    let mods = gpui_mods_to_ghostty(&event.modifiers);
+                    let effective = this.sync_modifiers(&event.modifiers, true);
+                    let mods = gpui_mods_to_ghostty(&effective);
                     this.begin_mouse_sequence(MouseButton::Left, event.position, mods);
                     cx.emit(GhosttyFocusChanged);
                     cx.notify();
@@ -2795,8 +2815,8 @@ impl Render for GhosttyView {
                 cx.listener(|this, event: &MouseUpEvent, _window, cx| {
                     this.scrollbar_drag = None;
                     this.last_mouse_position = Some(event.position);
-                    this.sync_modifiers(&event.modifiers);
-                    let mods = gpui_mods_to_ghostty(&event.modifiers);
+                    let effective = this.sync_modifiers(&event.modifiers, false);
+                    let mods = gpui_mods_to_ghostty(&effective);
                     if this.release_left_mouse_sequence(event.position, Some(mods), cx)
                         && this.drain_surface_state(true, cx)
                     {
@@ -2812,7 +2832,8 @@ impl Render for GhosttyView {
                         return;
                     }
                     this.last_mouse_position = Some(event.position);
-                    let mods = gpui_mods_to_ghostty(&event.modifiers);
+                    let effective = this.sync_modifiers(&event.modifiers, false);
+                    let mods = gpui_mods_to_ghostty(&effective);
                     if this.release_left_mouse_sequence(event.position, Some(mods), cx)
                         && this.drain_surface_state(true, cx)
                     {
@@ -2852,7 +2873,8 @@ impl Render for GhosttyView {
                     return;
                 }
                 this.last_mouse_position = Some(event.position);
-                let mods = gpui_mods_to_ghostty(&event.modifiers);
+                let effective = this.sync_modifiers(&event.modifiers, false);
+                let mods = gpui_mods_to_ghostty(&effective);
                 if event.pressed_button.is_none() {
                     let released_left =
                         this.release_left_mouse_sequence(event.position, Some(mods), cx);
@@ -2868,7 +2890,7 @@ impl Render for GhosttyView {
             }))
             .on_modifiers_changed(cx.listener(
                 |this, event: &ModifiersChangedEvent, _window, cx| {
-                    this.sync_modifiers(&event.modifiers);
+                    this.sync_modifiers(&event.modifiers, false);
                     if this.drain_surface_state(false, cx) {
                         cx.notify();
                     }
@@ -3070,6 +3092,37 @@ mod tests {
         assert_eq!(
             super::changed_modifier_key(plain, shift),
             Some((0x38, true))
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn command_link_gesture_releases_tui_mouse_capture_only() {
+        let plain = Modifiers::default();
+        let command = Modifiers {
+            platform: true,
+            ..plain
+        };
+        let shift = Modifiers {
+            shift: true,
+            ..plain
+        };
+        assert_eq!(super::mouse_link_modifiers(plain, true), plain);
+        assert_eq!(super::mouse_link_modifiers(shift, true), shift);
+        assert_eq!(super::mouse_link_modifiers(command, false), command);
+        let captured_command = super::mouse_link_modifiers(command, true);
+        assert!(captured_command.platform && captured_command.shift);
+        assert_eq!(
+            super::gpui_mods_to_ghostty(&captured_command),
+            con_ghostty::ffi::GHOSTTY_MODS_SUPER | con_ghostty::ffi::GHOSTTY_MODS_SHIFT
+        );
+        assert_eq!(
+            super::changed_modifier_key(command, captured_command),
+            Some((0x38, true))
+        );
+        assert_eq!(
+            super::changed_modifier_key(captured_command, command),
+            Some((0x38, false))
         );
     }
 
