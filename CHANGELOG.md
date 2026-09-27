@@ -17,7 +17,35 @@ con is still pre-release, so entries may group related beta work while the produ
   [#401](https://github.com/nowledge-co/con-terminal/pull/401) by
   [@sunny0826](https://github.com/sunny0826))_
 
+### Changed
+
+**Tabs**
+
+- Tabs and the sidebar now show activity and progress without moving app icons.
+  They also make errors, input requests, and paused sessions easier to spot.
+  _(PR [#405](https://github.com/nowledge-co/con-terminal/pull/405) by
+  [@yyhhyyyyyy](https://github.com/yyhhyyyyyy))_
+
 ### Fixed
+
+**Agent**
+
+- Shift-Enter inserts a new line when editing an earlier message instead of
+  sending it. _(PR [#402](https://github.com/nowledge-co/con-terminal/pull/402)
+  by [@yyhhyyyyyy](https://github.com/yyhhyyyyyy))_
+
+**Input bar**
+
+- The input bar keeps its size when you resize the window or change input
+  modes. _(PR [#405](https://github.com/nowledge-co/con-terminal/pull/405) by
+  [@yyhhyyyyyy](https://github.com/yyhhyyyyyy))_
+
+**Images · Linux**
+
+- Magnified Kitty images keep their visible edges instead of disappearing at
+  the viewport boundary. _(PR
+  [#402](https://github.com/nowledge-co/con-terminal/pull/402) by
+  [@yyhhyyyyyy](https://github.com/yyhhyyyyyy))_
 
 **Terminal · macOS**
 
