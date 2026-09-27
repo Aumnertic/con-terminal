@@ -25,7 +25,8 @@ con is still pre-release, so entries may group related beta work while the produ
   CLI without changing their normal click behavior. For long, wrapped sign-in
   links, hover and press Command-C to copy the complete address without
   selecting every line. _(PR
-  [#404](https://github.com/nowledge-co/con-terminal/pull/404) and follow-up by
+  [#404](https://github.com/nowledge-co/con-terminal/pull/404) and
+  [#406](https://github.com/nowledge-co/con-terminal/pull/406) by
   [@wey-gu](https://github.com/wey-gu))_
 
 ---
